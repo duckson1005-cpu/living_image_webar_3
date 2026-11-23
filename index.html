@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#151519"><title>살아있는 그림 · WebAR FIX 5</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#151519;color:#fff;font-family:system-ui,-apple-system,sans-serif}button,a{touch-action:manipulation}button{font:inherit;cursor:pointer;border:0;border-radius:16px;padding:14px 20px;background:#ffc95a;color:#222;font-weight:750}button:disabled{opacity:.5}#ar{position:fixed;inset:0;overflow:hidden}#ar canvas{position:absolute;inset:0}#intro{position:fixed;inset:0;z-index:10;overflow:auto;background:radial-gradient(ellipse at top,#40362c,#151519 65%);padding:32px 24px;display:grid;place-items:center}.card{width:min(100%,480px)}.eyebrow{font-size:12px;letter-spacing:.2em;color:#ffc95a}h1{font-size:36px;line-height:1.2;margin:16px 0}p{color:#c9c7c4;line-height:1.7;font-size:15px}.preview{width:100%;border-radius:20px;margin:12px 0;box-shadow:0 20px 60px #0005}#start{width:100%;margin-top:12px}.links{display:flex;gap:12px;align-items:center;justify-content:center;margin:20px 0;font-size:14px}.links a{color:#e6d5b4}#status{font-size:14px;white-space:pre-line;line-height:1.6;min-height:24px;color:#ffdd96}#hud{position:fixed;z-index:5;inset:0;pointer-events:none;padding:calc(env(safe-area-inset-top) + 18px) 18px 24px;display:flex;flex-direction:column;justify-content:space-between}#badge{align-self:center;border:1px solid #ffffff26;background:#17171bd9;border-radius:30px;padding:12px 18px;font-size:13px;max-width:95%;text-align:center}.controls{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-bottom:env(safe-area-inset-bottom)}.controls button{pointer-events:auto;background:#17171be8;color:#fff;border:1px solid #ffffff30;font-size:13px;padding:12px 15px}#guide{width:min(80vw,440px);aspect-ratio:1200/1531;border:2px dashed #ffdb8b99;border-radius:14px;align-self:center;box-shadow:0 0 0 3000px #0001}#guide.hide{opacity:0}[hidden]{display:none!important}dialog{border:0;border-radius:20px;background:#242428;color:#fff;max-width:95vw;width:680px;padding:16px}dialog::backdrop{background:#000b}dialog video{width:100%;display:block;margin-bottom:12px;border-radius:12px}small{display:block;color:#969598;font-size:12px;line-height:1.6}
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.151.3/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.151.3/examples/jsm/"}}</script>
+</head>
+<body>
+<div id="ar"></div>
+<section id="intro"><div class="card">
+<div class="eyebrow">LIVING PICTURE / WEB AR · FIX 5</div><h1>그림이 살아나는 순간</h1><p>카메라로 이 그림을 비춰 보세요.<br>그림 위에서 캐릭터들이 움직이기 시작합니다.</p>
+<img class="preview" src="./Img.png" alt="카메라로 인식할 새로운 그림">
+<button id="start">카메라로 시작하기</button><p id="status" role="status" aria-live="polite">그림을 다른 화면에 띄우거나 인쇄해 준비해 주세요.</p>
+<div class="links"><a href="./Img.png" target="_blank" rel="noopener">인식 이미지 열기 ↗</a><a href="#" id="preview">영상 미리보기</a></div>
+<small>첫 실행 시 이미지 분석에 시간이 걸릴 수 있습니다. 밝은 곳에서 그림 전체가 보이도록 비춰 주세요. 카메라 영상은 서버에 전송하지 않습니다.</small>
+</div></section>
+<div id="hud" hidden><div id="badge" role="status" aria-live="polite">그림을 화면 안에 맞춰 주세요</div><div id="guide"></div><div class="controls"><button id="sound">소리 켜기</button><button id="replay">처음부터</button><button id="resume" hidden>영상 재생</button><button id="exit">종료</button></div></div>
+<video id="movie" src="./video.mp4" preload="auto" muted loop playsinline webkit-playsinline hidden></video>
+<dialog id="demo"><video src="./video.mp4" controls playsinline preload="none" poster="./Img.png"></video><button id="closeDemo">닫기</button></dialog>
+<script type="module">
+const $=id=>document.getElementById(id);
+console.info("WebAR FIX 5 loaded", import.meta.url);
+const video=$('movie');let mindar,mesh,renderer,scene,camera,anchor,objectURL,prepared=false,active=false,found=false,starting=false,fade=0,last=0;
+$('preview').onclick=e=>{e.preventDefault();$('demo').showModal()};
+$('closeDemo').onclick=()=>$('demo').close();$('demo').addEventListener('close',()=>$('demo').querySelector('video').pause());
+function status(text){$('status').textContent=text}
+function badge(text){$('badge').textContent=text}
+async function play(){if(!active||!found||document.hidden)return;try{await video.play();$('resume').hidden=true;badge(video.muted?'그림이 살아났어요 · 소리를 켤 수 있어요':'그림이 살아났어요')}catch{if(!video.muted){video.muted=true;$('sound').textContent='소리 켜기';try{await video.play();return}catch{}}$('resume').hidden=false;badge('영상 재생 버튼을 눌러 주세요')}}
+// Cache the compiled target. Image bytes determine the key, so changing Img.png invalidates it.
+async function getTarget(Compiler){
+ const response=await fetch('./Img.png');if(!response.ok)throw Error('인식 이미지 Img.png를 불러오지 못했습니다.');
+ const bytes=await response.arrayBuffer();const digest=await crypto.subtle.digest('SHA-256',bytes);const hash=Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,'0')).join('');
+ const key=new URL('./__target_1.2.5_'+hash+'.mind',location.href).href;let cache;
+ try{cache=await caches.open('living-picture-target-v1');const saved=await cache.match(key);if(saved)return await saved.blob()}catch{}
+ const imageURL=URL.createObjectURL(new Blob([bytes]));
+ try{const img=new Image();img.src=imageURL;await img.decode();const compiler=new Compiler();await compiler.compileImageTargets([img],p=>status('그림 인식 준비 중… '+Math.round(p*100)+'%\n처음 한 번만 이미지를 분석합니다.'));const data=await compiler.exportData();const blob=new Blob([data],{type:'application/octet-stream'});try{await cache?.put(key,new Response(blob))}catch{}return blob}finally{URL.revokeObjectURL(imageURL)}
+}
+async function prepare(){
+ status('AR 엔진을 불러오는 중…');
+ const [THREE,{MindARThree},Compiler]=await Promise.all([import('three'),import('https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js'),import('https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js').then(m=>{if(!m.Compiler)throw new Error('MindAR 모듈에서 Compiler export를 찾을 수 없습니다.');return m.Compiler})]);
+ const blob=await getTarget(Compiler);objectURL=URL.createObjectURL(blob);
+ mindar=new MindARThree({container:$('ar'),imageTargetSrc:objectURL,maxTrack:1,uiLoading:'no',uiScanning:'no',uiError:'no',filterMinCF:0.0001,filterBeta:0.001,warmupTolerance:3,missTolerance:6});
+ ({renderer,scene,camera}=mindar);renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+ const tex=new THREE.VideoTexture(video);tex.encoding=THREE.sRGBEncoding;
+ // Reference-image aspect ratio updated for the new portrait image.
+ mesh=new THREE.Mesh(new THREE.PlaneGeometry(1,1531/1200),new THREE.MeshBasicMaterial({map:tex,transparent:true,opacity:0,toneMapped:false,side:THREE.DoubleSide}));mesh.position.z=0.001;
+ anchor=mindar.addAnchor(0);anchor.group.add(mesh);
+ anchor.onTargetFound=()=>{if(!active)return;found=true;fade=0;mesh.material.opacity=0;$('guide').classList.add('hide');play()};
+ anchor.onTargetLost=()=>{found=false;video.pause();mesh.material.opacity=0;$('resume').hidden=true;$('guide').classList.remove('hide');badge('그림을 다시 비추면 이어서 재생돼요')};
+ prepared=true;
+}
+function stop(){active=false;found=false;video.pause();renderer?.setAnimationLoop(null);if(mindar){try{mindar.stop()}catch{}}$('hud').hidden=true;$('intro').hidden=false;$('start').disabled=false;$('start').textContent='카메라로 시작하기';status('그림을 다른 화면에 띄우거나 인쇄해 준비해 주세요.');}
+$('start').onclick=async()=>{
+ if(starting)return;
+ if(!isSecureContext||!navigator.mediaDevices?.getUserMedia){status('카메라를 사용하려면 HTTPS 주소로 접속해 주세요.\nHTML 파일을 직접 열면 AR을 실행할 수 없습니다.');return}
+ starting=true;$('start').disabled=true;
+ // Initiate video playback inside the user's gesture, then pause until detection.
+ video.muted=true;$('sound').textContent='소리 켜기';video.play().then(()=>{if(!found)video.pause()}).catch(()=>{});
+ try{if(!prepared)await prepare();status('카메라 권한을 허용해 주세요…');active=true;await mindar.start();$('intro').hidden=true;$('hud').hidden=false;$('guide').classList.remove('hide');badge('그림 전체가 보이도록 비춰 주세요');last=performance.now();renderer.setAnimationLoop(now=>{const dt=Math.min((now-last)/1000,.1);last=now;if(found&&video.readyState>=2&&!video.paused){fade=Math.min(1,fade+dt/.35);mesh.material.opacity=fade}renderer.render(scene,camera)})}
+ catch(e){console.error(e);stop();status(e.name==='NotAllowedError'?'카메라 권한이 필요합니다. 브라우저 설정에서 허용한 뒤 다시 시작해 주세요.':e.name==='NotFoundError'?'카메라를 찾을 수 없습니다. 카메라가 있는 휴대폰에서 열어 주세요.':'시작하지 못했습니다. 인터넷 연결과 파일 경로를 확인하고 다시 시도해 주세요.\n'+e.message)}
+ finally{starting=false;$('start').disabled=false}
+};
+$('sound').onclick=()=>{video.muted=!video.muted;$('sound').textContent=video.muted?'소리 켜기':'소리 끄기';if(found)play()};
+$('replay').onclick=()=>{video.currentTime=0;if(found)play()};$('resume').onclick=play;$('exit').onclick=stop;
+video.addEventListener('error',()=>{status('video.mp4를 재생할 수 없습니다. 파일을 같은 폴더에 넣어 주세요.');badge('영상을 불러오지 못했습니다. 종료 후 파일을 확인해 주세요.')});
+document.addEventListener('visibilitychange',()=>{if(document.hidden)video.pause();else if(active&&found)play()});window.addEventListener('pagehide',stop);
+</script>
+</body></html>
